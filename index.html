@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Daily Hangs</title>
+<meta name="description" content="Timer and log for the 10-minute daily hangboard routine.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Daily Hangs">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#f3f1ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15181a" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Public+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one-screen phone app — header, tab view, bottom tab bar. Hang = colored ring, rest = grey ring (as in the video). */
+:root {
+  --bg: #f3f1ee;          /* chalk */
+  --surface: #ffffff;
+  --ink: #1d2124;
+  --muted: #6b7075;
+  --line: #dedad4;
+  --hang: #0f7a6b;        /* climbing-tape teal */
+  --hang-soft: #d4ece7;
+  --rest: #9aa0a5;
+  --rest-soft: #e7e6e3;
+  --wood: #b98a55;        /* birch hangboard */
+  --danger: #b4412f;
+  --font-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15181a; --surface: #1e2225; --ink: #eceae6; --muted: #9a9fa3; --line: #2e3337;
+    --hang: #3cc2ab; --hang-soft: #15332e; --rest: #7b8186; --rest-soft: #262a2d;
+    --wood: #d2a66f; --danger: #e5735f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15181a; --surface: #1e2225; --ink: #eceae6; --muted: #9a9fa3; --line: #2e3337;
+  --hang: #3cc2ab; --hang-soft: #15332e; --rest: #7b8186; --rest-soft: #262a2d;
+  --wood: #d2a66f; --danger: #e5735f; color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px;
+  -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
+  display: flex; flex-direction: column; height: 100dvh; padding-top: env(safe-area-inset-top, 0px);
+  overscroll-behavior: none;
+}
+.app { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; max-width: 520px; margin: 0 auto; }
+nav.tabs { padding-bottom: env(safe-area-inset-bottom, 0px); }
+header {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 14px 6px;
+}
+h1 { font-family: var(--font-display); font-weight: 800; font-size: 26px; letter-spacing: .02em; margin: 0; text-transform: uppercase; }
+.today { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+main { flex: 1; overflow-y: auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 4px 20px; }
+.view { display: flex; flex-direction: column; gap: 18px; }
+nav.tabs {
+  display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); background: var(--surface);
+  padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px));
+}
+nav.tabs button {
+  border: 0; background: none; color: var(--muted); font: 600 13px var(--font-body); letter-spacing: .06em; text-transform: uppercase;
+  padding-block: 14px; cursor: pointer;
+}
+nav.tabs button[aria-selected="true"] { color: var(--ink); box-shadow: inset 0 3px 0 var(--hang); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--hang); outline-offset: 2px; }
+
+/* ---- Timer ---- */
+.stage { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 6px; }
+.grip-name { font-family: var(--font-display); font-weight: 800; font-size: 34px; text-transform: uppercase; letter-spacing: .02em; text-align: center; text-wrap: balance; line-height: 1; }
+.grip-sub { color: var(--muted); font-size: 13px; text-align: center; min-height: 1.3em; }
+.ring { position: relative; width: min(74vw, 300px); aspect-ratio: 1; max-width: 100%; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring .track { fill: none; stroke: var(--rest-soft); stroke-width: 14; }
+.ring .prog { fill: none; stroke: var(--rest); stroke-width: 14; stroke-linecap: round; transition: stroke .2s; }
+.ring.hang .prog { stroke: var(--hang); }
+.ring.hang .track { stroke: var(--hang-soft); }
+.ring .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.secs { font-family: var(--font-display); font-weight: 800; font-size: clamp(84px, 30vw, 128px); line-height: .9; font-variant-numeric: tabular-nums; }
+.phase { font-weight: 700; font-size: 14px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+.ring.hang .phase, .ring.hang .secs { color: var(--hang); }
+.meta-row { display: flex; gap: 18px; justify-content: center; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.meta-row b { color: var(--ink); font-weight: 600; }
+.reps { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.reps i { width: 10px; height: 10px; border-radius: 50%; background: var(--rest-soft); border: 1px solid var(--line); }
+.reps i.done { background: var(--hang); border-color: var(--hang); }
+.reps i.now { background: var(--wood); border-color: var(--wood); }
+.controls { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 10px; width: 100%; }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 12px; padding: 14px 10px;
+  font: 600 15px var(--font-body); cursor: pointer; touch-action: manipulation;
+}
+.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-size: 17px; }
+.btn.primary.running { background: var(--surface); color: var(--ink); border-color: var(--ink); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.small { padding: 8px 12px; font-size: 13px; border-radius: 9px; }
+.btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+
+.load {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px;
+}
+.load label { font-size: 13px; color: var(--muted); }
+.load label b { display: block; color: var(--ink); font-size: 14px; }
+.num { width: 86px; font: 600 18px var(--font-body); font-variant-numeric: tabular-nums; text-align: right; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+
+.section-label { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.plan li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding-block: 10px; border-bottom: 1px solid var(--line); }
+.plan .n { font-family: var(--font-display); font-weight: 800; font-size: 18px; color: var(--muted); }
+.plan .nm { font-weight: 600; min-width: 0; }
+.plan .nm small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.plan .ct { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.plan li.current .n, .plan li.current .nm { color: var(--hang); }
+.plan li.finished { opacity: .5; }
+.plan li.finished .ct::before { content: "✓ "; color: var(--hang); }
+
+/* ---- Log ---- */
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
+.stat b { font-family: var(--font-display); font-weight: 800; font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal .dow { font-size: 11px; color: var(--muted); text-align: center; letter-spacing: .06em; }
+.day { aspect-ratio: 1; max-width: 100%; border-radius: 8px; background: var(--rest-soft); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.day.has1 { background: var(--hang-soft); color: var(--ink); }
+.day.has2 { background: var(--hang); color: var(--surface); }
+.day.is-today { outline: 2px solid var(--wood); outline-offset: -2px; }
+.day.future { background: transparent; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; }
+.sessions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.sessions li { padding-block: 12px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: start; }
+.sessions .when { font-weight: 600; }
+.sessions .what { font-size: 13px; color: var(--muted); grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
+.sessions .acts { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 6px; }
+.empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; padding: 22px 16px; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.empty b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
+
+/* ---- Setup ---- */
+.fields { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.field { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 10px; border-bottom: 1px solid var(--line); }
+.field label { min-width: 0; }
+.field label small { display: block; color: var(--muted); font-size: 12px; }
+.toggle { width: 22px; height: 22px; accent-color: var(--hang); }
+.calc { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; line-height: 1.5; }
+.calc .big { font-family: var(--font-display); font-weight: 800; font-size: 40px; line-height: 1; color: var(--hang); font-variant-numeric: tabular-nums; }
+.note { font-size: 13px; color: var(--muted); line-height: 1.5; max-width: 62ch; }
+.note a { color: var(--hang); }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  max-width: calc(100% - 32px);
+}
+@media (prefers-reduced-motion: reduce) { .ring .prog { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Daily Hangs</h1>
+    <span class="today" id="todayLbl"></span>
+  </header>
+
+  <main>
+    <!-- TRAIN -->
+    <section class="view" id="view-train">
+      <div class="stage">
+        <div class="grip-name" id="gripName">Half crimp</div>
+        <div class="grip-sub" id="gripSub"></div>
+        <div class="ring" id="ring">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="track" cx="60" cy="60" r="52"></circle>
+            <circle class="prog" id="prog" cx="60" cy="60" r="52" stroke-dasharray="326.73" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="center" aria-live="polite">
+            <div class="secs" id="secs">10</div>
+            <div class="phase" id="phase">Ready</div>
+          </div>
+        </div>
+        <div class="reps" id="reps"></div>
+        <div class="meta-row">
+          <span>Hang <b id="hangCount">0 / 20</b></span>
+          <span>Left <b id="timeLeft">10:00</b></span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="resetBtn" type="button">Reset</button>
+        <button class="btn primary" id="startBtn" type="button">Start</button>
+        <button class="btn" id="skipBtn" type="button">Skip</button>
+      </div>
+
+      <div class="load">
+        <label for="loadInput"><b id="loadGrip">Half crimp</b>Scale reading while hanging (kg)</label>
+        <input class="num" id="loadInput" type="number" inputmode="decimal" step="0.5" min="0" placeholder="—">
+      </div>
+
+      <h2 class="section-label">Today's routine</h2>
+      <ol class="plan" id="plan"></ol>
+      <button class="btn small" id="finishBtn" type="button" hidden>Finish early and save</button>
+    </section>
+
+    <!-- LOG -->
+    <section class="view" id="view-log" hidden>
+      <div class="stats">
+        <div class="stat"><b id="stStreak">0</b><span>day streak</span></div>
+        <div class="stat"><b id="stWeek">0</b><span>sessions in 7 days</span></div>
+        <div class="stat"><b id="stHangs">0</b><span>total hangs</span></div>
+      </div>
+      <h2 class="section-label">Last 4 weeks</h2>
+      <div class="cal" id="cal"></div>
+      <div class="legend">
+        <span><i style="background:var(--hang-soft)"></i>1 session</span>
+        <span><i style="background:var(--hang)"></i>2+ sessions (AM + PM)</span>
+      </div>
+      <h2 class="section-label">Sessions</h2>
+      <ul class="sessions" id="sessions"></ul>
+      <p class="note" id="storeNote"></p>
+    </section>
+
+    <!-- SETUP -->
+    <section class="view" id="view-setup" hidden>
+      <h2 class="section-label">Timer</h2>
+      <div class="fields">
+        <div class="field"><label for="sHang">Hang<small>Seconds on the board</small></label><input class="num" id="sHang" type="number" inputmode="numeric" min="3" max="60"></div>
+        <div class="field"><label for="sRest">Rest<small>Seconds between hangs</small></label><input class="num" id="sRest" type="number" inputmode="numeric" min="5" max="180"></div>
+        <div class="field"><label for="sPrep">Get ready<small>Countdown before the first hang</small></label><input class="num" id="sPrep" type="number" inputmode="numeric" min="0" max="60"></div>
+        <div class="field"><label for="sSound">Beeps<small>3-2-1 and start/stop tones</small></label><input class="toggle" id="sSound" type="checkbox"></div>
+        <div class="field" id="buzzField"><label for="sBuzz">Vibrate<small>Where your phone allows it</small></label><input class="toggle" id="sBuzz" type="checkbox"></div>
+      </div>
+
+      <h2 class="section-label">Reps per grip</h2>
+      <div class="fields" id="gripFields"></div>
+
+      <h2 class="section-label">40% load calculator</h2>
+      <div class="fields">
+        <div class="field"><label for="sBw">Body weight (kg)</label><input class="num" id="sBw" type="number" inputmode="decimal" step="0.5" min="0"></div>
+        <div class="field"><label for="sMax">Max-hang added weight (kg)<small>~5 s max on a 20 mm edge</small></label><input class="num" id="sMax" type="number" inputmode="decimal" step="0.5"></div>
+        <div class="field"><label for="sPct">Target load (%)</label><input class="num" id="sPct" type="number" inputmode="numeric" min="10" max="100"></div>
+      </div>
+      <div class="calc" id="calcBox"></div>
+      <button class="btn small" id="defaultsBtn" type="button">Restore video defaults</button>
+
+      <h2 class="section-label">Backup</h2>
+      <p class="note">Your log lives on this phone only. Save a backup now and then so you don't lose it if you delete the app.</p>
+      <div class="controls" style="grid-template-columns:1fr 1fr">
+        <button class="btn small" id="exportBtn" type="button">Save backup</button>
+        <button class="btn small" id="importBtn" type="button">Restore backup</button>
+      </div>
+      <input id="importFile" type="file" accept=".json,application/json" hidden>
+      <p class="note">Routine from Emil Abrahamsson's <a href="https://www.youtube.com/watch?v=3FNZdixeuZw" target="_blank" rel="noopener">10 Minute Daily Hangboard Routine</a>. Stand on a scale under the board and take weight off with your feet until the scale shows the reading above. Keep it easy: this is a low-load daily routine, not a max session.</p>
+    </section>
+  </main>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="train" aria-selected="true">Train</button>
+    <button type="button" role="tab" data-tab="log" aria-selected="false">Log</button>
+    <button type="button" role="tab" data-tab="setup" aria-selected="false">Setup</button>
+  </nav>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function () {
+  const GRIPS = [
+    { id: "hc",  name: "Half crimp",            sub: "All four fingers, about 90° at the middle joint" },
+    { id: "3d",  name: "3-finger drag",         sub: "Index, middle and ring, open hand" },
+    { id: "f2d", name: "Front 2-finger drag",   sub: "Index + middle, open hand" },
+    { id: "m2d", name: "Middle 2-finger drag",  sub: "Middle + ring, open hand" },
+    { id: "f2c", name: "Front 2-finger crimp",  sub: "Index + middle, half crimp" },
+    { id: "m2c", name: "Middle 2-finger crimp", sub: "Middle + ring, half crimp" }
+  ];
+  const DEFAULTS = {
+    hang: 10, rest: 20, prep: 10, sound: true, buzz: true,
+    reps: { hc: 6, "3d": 6, f2d: 2, m2d: 2, f2c: 2, m2c: 2 },
+    bw: "", max: "", pct: 40, loads: {}
+  };
+  const $ = (id) => document.getElementById(id);
+  const LS_SETTINGS = "dh.settings", LS_SESSIONS = "dh.sessions";
+
+  function lsGet(k, f) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : f; } catch (e) { return f; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+  let settings = Object.assign({}, DEFAULTS, lsGet(LS_SETTINGS, {}));
+  settings.reps = Object.assign({}, DEFAULTS.reps, settings.reps);
+  settings.loads = Object.assign({}, settings.loads);
+  let sessions = lsGet(LS_SESSIONS, []);
+
+  // ---------- Storage (this phone only) ----------
+  function saveSettings() { lsSet(LS_SETTINGS, settings); }
+  function addSession(rec) { sessions.unshift(rec); lsSet(LS_SESSIONS, sessions); renderLog(); }
+  function removeSession(id) { sessions = sessions.filter((s) => s.id !== id); lsSet(LS_SESSIONS, sessions); renderLog(); }
+  // Ask iOS/Android not to clear our data when space runs low
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+
+  // ---------- Routine steps ----------
+  let steps = [];       // {kind:'prep'|'hang'|'rest', dur, grip, rep, reps, hangIndex}
+  let totalHangs = 0;
+  function buildSteps() {
+    steps = []; totalHangs = 0;
+    if (settings.prep > 0) steps.push({ kind: "prep", dur: settings.prep, grip: firstGrip() });
+    const active = GRIPS.filter((g) => settings.reps[g.id] > 0);
+    active.forEach((g, gi) => {
+      const n = settings.reps[g.id];
+      for (let r = 1; r <= n; r++) {
+        totalHangs++;
+        steps.push({ kind: "hang", dur: settings.hang, grip: g, rep: r, reps: n, hangIndex: totalHangs });
+        const last = gi === active.length - 1 && r === n;
+        if (!last) steps.push({ kind: "rest", dur: settings.rest, grip: g, rep: r, reps: n, next: r === n ? active[gi + 1] : g });
+      }
+    });
+    idx = 0; remainingMs = steps.length ? steps[0].dur * 1000 : 0; hangsDone = 0; finished = false;
+  }
+  function firstGrip() { return GRIPS.find((g) => settings.reps[g.id] > 0) || GRIPS[0]; }
+
+  // ---------- Timer engine (wall-clock based so it stays accurate) ----------
+  let idx = 0, running = false, endAt = 0, remainingMs = 0, tick = 0, lastWhole = -1, hangsDone = 0, finished = false, startedAt = 0;
+  let wakeLock = null;
+
+  function start() {
+    if (finished) { buildSteps(); }
+    if (!steps.length) return;
+    unlockAudio();
+    if (!startedAt) startedAt = Date.now();
+    running = true; endAt = Date.now() + remainingMs; lastWhole = -1;
+    requestWake(); clearInterval(tick); tick = setInterval(loop, 100); loop(); renderTrain();
+  }
+  function pause() {
+    running = false; remainingMs = Math.max(0, endAt - Date.now()); clearInterval(tick); releaseWake(); renderTrain();
+  }
+  function reset() {
+    running = false; clearInterval(tick); releaseWake(); startedAt = 0; buildSteps(); renderAll();
+  }
+  function advance(viaSkip) {
+    const cur = steps[idx];
+    if (cur && cur.kind === "hang" && !viaSkip) hangsDone = Math.max(hangsDone, cur.hangIndex);
+    if (cur && cur.kind === "hang" && viaSkip) hangsDone = Math.max(hangsDone, cur.hangIndex - 1);
+    idx++;
+    if (idx >= steps.length) { complete(); return; }
+    const nxt = steps[idx];
+    // stay on the wall-clock schedule unless we fell far behind (e.g. phone was locked)
+    const now = Date.now(), base = running && now - endAt < 1500 ? endAt : now;
+    remainingMs = nxt.dur * 1000; endAt = base + remainingMs; lastWhole = -1;
+    if (nxt.kind === "hang") { tone(1046, .35); buzz([180]); } else { tone(523, .45); buzz([90, 60, 90]); }
+    renderTrain();
+  }
+  function loop() {
+    if (!running) return;
+    const left = endAt - Date.now();
+    if (left <= 0) { advance(false); if (!running) return; }
+    const whole = Math.ceil(Math.max(0, endAt - Date.now()) / 1000);
+    if (whole !== lastWhole) {
+      lastWhole = whole;
+      const nxt = steps[idx + 1];
+      if (whole <= 3 && whole >= 1 && steps[idx].kind !== "hang" && nxt && nxt.kind === "hang") tone(784, .12);
+    }
+    renderTick();
+  }
+  function complete() {
+    running = false; finished = true; clearInterval(tick); releaseWake();
+    hangsDone = totalHangs; idx = steps.length - 1; remainingMs = 0;
+    tone(1046, .2); setTimeout(() => tone(1318, .4), 220); buzz([200, 80, 200, 80, 300]);
+    saveCurrent(true);
+    renderAll();
+  }
+  function saveCurrent(full) {
+    if (hangsDone < 1) return;
+    const used = {};
+    GRIPS.forEach((g) => { if (settings.reps[g.id] > 0 && settings.loads[g.id] !== undefined && settings.loads[g.id] !== "") used[g.id] = Number(settings.loads[g.id]); });
+    const now = Date.now();
+    addSession({
+      id: "s" + now, ts: now, hangs: hangsDone, planned: totalHangs, full: !!full,
+      secs: Math.round((now - (startedAt || now)) / 1000), hang: settings.hang, rest: settings.rest, loads: used
+    });
+    startedAt = 0;
+    toast(full ? "Session saved. Nice work." : "Saved " + hangsDone + " hangs");
+  }
+
+  // Keep the screen on while the timer runs
+  async function requestWake() { try { if ("wakeLock" in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); } } catch (e) { wakeLock = null; } }
+  function releaseWake() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && running) requestWake(); });
+
+  // ---------- Sound + vibration ----------
+  let actx = null;
+  function unlockAudio() { try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); } catch (e) { actx = null; } }
+  function tone(freq, dur) {
+    if (!settings.sound || !actx) return;
+    try {
+      const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+      o.type = "sine"; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur + 0.05);
+    } catch (e) {}
+  }
+  function buzz(p) { if (!settings.buzz) return; try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} }
+
+  // ---------- Render: train ----------
+  const CIRC = 2 * Math.PI * 52;
+  function fmt(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+  function curStep() { return steps[idx] || { kind: "prep", dur: 0, grip: firstGrip() }; }
+  function displayGrip(st) { return st.kind === "rest" && st.next ? st.next : st.grip; }
+
+  function renderTick() {
+    const st = curStep();
+    const left = running ? Math.max(0, endAt - Date.now()) : remainingMs;
+    $("secs").textContent = finished ? "✓" : Math.ceil(left / 1000);
+    const frac = finished ? 1 : (st.dur ? left / (st.dur * 1000) : 0);
+    $("prog").style.strokeDashoffset = String(CIRC * (1 - frac));
+    let rem = left / 1000;
+    for (let i = idx + 1; i < steps.length; i++) rem += steps[i].dur;
+    $("timeLeft").textContent = finished ? "0:00" : fmt(rem);
+  }
+  function renderTrain() {
+    const st = curStep(), g = displayGrip(st);
+    const ring = $("ring");
+    ring.classList.toggle("hang", finished || st.kind === "hang");
+    let phase = "Ready", sub = g.sub;
+    if (finished) { phase = "Done"; sub = hangsDone + " hangs complete"; }
+    else if (st.kind === "prep") phase = running ? "Get ready" : (startedAt ? "Paused" : "Ready");
+    else if (st.kind === "hang") phase = running ? "Hang" : (startedAt ? "Paused" : "Ready");
+    else { phase = running ? "Rest" : (startedAt ? "Paused" : "Ready"); if (st.next && st.next !== st.grip) sub = "Next grip: " + st.next.name; else sub = "Next: hang " + (st.rep + 1) + " of " + st.reps; }
+    $("phase").textContent = phase;
+    $("gripName").textContent = finished ? "Session done" : g.name;
+    $("gripSub").textContent = sub;
+
+    const reps = settings.reps[g.id] || 0;
+    let doneInGrip = 0;
+    if (st.kind === "hang") doneInGrip = st.rep - 1; else if (st.kind === "rest") doneInGrip = st.next && st.next !== st.grip ? 0 : st.rep;
+    $("reps").innerHTML = finished ? "" : Array.from({ length: reps }, (_, i) =>
+      '<i class="' + (i < doneInGrip ? "done" : (i === doneInGrip && st.kind === "hang" ? "now" : "")) + '"></i>').join("");
+
+    const hangNo = st.kind === "hang" ? st.hangIndex : hangsDone;
+    $("hangCount").textContent = hangNo + " / " + totalHangs;
+
+    const sb = $("startBtn");
+    sb.textContent = running ? "Pause" : (finished ? "Go again" : (startedAt ? "Resume" : "Start"));
+    sb.classList.toggle("running", running);
+    $("skipBtn").disabled = finished || !steps.length;
+    $("finishBtn").hidden = finished || hangsDone < 1;
+
+    $("loadGrip").textContent = g.name;
+    const li = $("loadInput");
+    if (document.activeElement !== li) li.value = settings.loads[g.id] ?? "";
+    li.dataset.grip = g.id;
+
+    // plan list
+    const curGripId = finished ? null : g.id;
+    let passed = true;
+    $("plan").innerHTML = GRIPS.filter((x) => settings.reps[x.id] > 0).map((x, i) => {
+      if (x.id === curGripId) passed = false;
+      const cls = finished ? "finished" : (x.id === curGripId ? "current" : (passed ? "finished" : ""));
+      const load = settings.loads[x.id];
+      const n = settings.reps[x.id];
+      return '<li class="' + cls + '"><span class="n">' + (i + 1) + '</span><span class="nm">' + x.name +
+        '<small>' + n + ' × ' + settings.hang + ' s' + (load !== undefined && load !== "" ? ' · scale ' + load + ' kg' : '') + '</small></span>' +
+        '<span class="ct">' + fmt(n * (settings.hang + settings.rest)) + '</span></li>';
+    }).join("");
+    renderTick();
+  }
+
+  // ---------- Render: log ----------
+  function dayKey(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function renderLog() {
+    const byDay = {};
+    sessions.forEach((s) => { const k = dayKey(new Date(s.ts)); byDay[k] = (byDay[k] || 0) + 1; });
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    // streak: consecutive days with a session, ending today (or yesterday if today not done yet)
+    let streak = 0; const d = new Date(today);
+    if (!byDay[dayKey(d)]) d.setDate(d.getDate() - 1);
+    while (byDay[dayKey(d)]) { streak++; d.setDate(d.getDate() - 1); }
+    const weekAgo = Date.now() - 7 * 864e5;
+    $("stStreak").textContent = streak;
+    $("stWeek").textContent = sessions.filter((s) => s.ts >= weekAgo).length;
+    $("stHangs").textContent = sessions.reduce((a, s) => a + (s.hangs || 0), 0);
+
+    // calendar: 4 weeks ending this week, Monday first
+    const end = new Date(today); end.setDate(end.getDate() + ((7 - ((end.getDay() + 6) % 7)) - 1));
+    const startD = new Date(end); startD.setDate(startD.getDate() - 27);
+    let html = ["M", "T", "W", "T", "F", "S", "S"].map((x) => '<div class="dow">' + x + '</div>').join("");
+    for (let i = 0; i < 28; i++) {
+      const c = new Date(startD); c.setDate(startD.getDate() + i);
+      const n = byDay[dayKey(c)] || 0;
+      const cls = ["day", n >= 2 ? "has2" : n === 1 ? "has1" : "", c.getTime() === today.getTime() ? "is-today" : "", c > today ? "future" : ""].join(" ");
+      html += '<div class="' + cls + '" title="' + c.toDateString() + ': ' + n + ' session(s)">' + c.getDate() + '</div>';
+    }
+    $("cal").innerHTML = html;
+
+    const list = $("sessions");
+    if (!sessions.length) {
+      list.innerHTML = '<li style="display:block;border:0"><div class="empty"><b>No sessions yet</b>Finish a routine on the Train tab and it shows up here with the loads you used. Emil does it twice a day, morning and evening.</div></li>';
+    } else {
+      list.innerHTML = sessions.slice(0, 60).map((s) => {
+        const dt = new Date(s.ts);
+        const when = dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " · " + dt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+        const loads = Object.keys(s.loads || {}).map((k) => { const g = GRIPS.find((x) => x.id === k); return (g ? g.name : k) + " " + s.loads[k] + " kg"; }).join(", ");
+        return '<li data-id="' + s.id + '"><span class="when">' + when + '</span>' +
+          '<span class="what">' + s.hangs + ' / ' + s.planned + ' hangs · ' + s.hang + '/' + s.rest + ' s · ' + fmt(s.secs || 0) + (s.full ? '' : ' · stopped early') + (loads ? '<br>' + loads : '') + '</span>' +
+          '<span class="acts"><button class="btn small danger" type="button" data-del="' + s.id + '">Delete</button></span></li>';
+      }).join("");
+    }
+    $("storeNote").textContent = "Your log is saved on this phone. Use Save backup on the Setup tab to keep a copy.";
+  }
+  $("sessions").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-del], button[data-yes], button[data-no]");
+    if (!b) return;
+    const li = b.closest("li");
+    if (b.dataset.del) {
+      li.querySelector(".acts").innerHTML = '<button class="btn small danger" type="button" data-yes="' + b.dataset.del + '">Delete it</button><button class="btn small" type="button" data-no="1">Keep</button>';
+    } else if (b.dataset.yes) { removeSession(b.dataset.yes); toast("Session deleted"); }
+    else renderLog();
+  });
+
+  // ---------- Setup ----------
+  function fillSetup() {
+    $("sHang").value = settings.hang; $("sRest").value = settings.rest; $("sPrep").value = settings.prep;
+    $("sSound").checked = !!settings.sound; $("sBuzz").checked = !!settings.buzz;
+    $("sBw").value = settings.bw; $("sMax").value = settings.max; $("sPct").value = settings.pct;
+    $("gripFields").innerHTML = GRIPS.map((g) =>
+      '<div class="field"><label for="r_' + g.id + '">' + g.name + '<small>' + g.sub + '</small></label><input class="num" id="r_' + g.id + '" data-rep="' + g.id + '" type="number" inputmode="numeric" min="0" max="20" value="' + settings.reps[g.id] + '"></div>').join("");
+    renderCalc();
+  }
+  function renderCalc() {
+    const bw = parseFloat(settings.bw), mx = parseFloat(settings.max), pct = parseFloat(settings.pct) || 40;
+    const box = $("calcBox");
+    if (!(bw > 0) || isNaN(mx)) {
+      box.innerHTML = 'Enter your body weight and the most weight you can add for a ~5 s hang on a 20 mm edge (use a negative number if you need assistance). The app works out what the scale under you should read.';
+      return;
+    }
+    const total = bw + mx, load = total * pct / 100, scale = bw - load;
+    box.innerHTML = '<span>Scale should read about</span><span class="big">' + Math.max(0, scale).toFixed(1) + ' kg</span>' +
+      '<span class="note">Max = ' + bw + ' + ' + mx + ' = ' + total.toFixed(1) + ' kg. ' + pct + '% of that is ' + load.toFixed(1) + ' kg on your fingers, so take ' + load.toFixed(1) + ' kg off your ' + bw + ' kg. Weaker grips like the 2-finger crimps need more taken off.</span>';
+  }
+  function onSetupInput(e) {
+    const t = e.target; if (!t.id) return;
+    const num = (v, lo, hi, d) => { const n = parseInt(v, 10); return isNaN(n) ? d : Math.min(hi, Math.max(lo, n)); };
+    if (t.dataset.rep) settings.reps[t.dataset.rep] = num(t.value, 0, 20, 0);
+    else if (t.id === "sHang") settings.hang = num(t.value, 3, 60, 10);
+    else if (t.id === "sRest") settings.rest = num(t.value, 5, 180, 20);
+    else if (t.id === "sPrep") settings.prep = num(t.value, 0, 60, 10);
+    else if (t.id === "sSound") settings.sound = t.checked;
+    else if (t.id === "sBuzz") settings.buzz = t.checked;
+    else if (t.id === "sBw") settings.bw = t.value;
+    else if (t.id === "sMax") settings.max = t.value;
+    else if (t.id === "sPct") settings.pct = t.value;
+    saveSettings(); renderCalc();
+    if (!running && !startedAt) { buildSteps(); renderTrain(); }
+  }
+  $("view-setup").addEventListener("input", onSetupInput);
+  $("view-setup").addEventListener("change", onSetupInput);
+  $("defaultsBtn").addEventListener("click", () => {
+    Object.assign(settings, { hang: DEFAULTS.hang, rest: DEFAULTS.rest, prep: DEFAULTS.prep, reps: Object.assign({}, DEFAULTS.reps), pct: 40 });
+    saveSettings(); fillSetup(); if (!running) reset(); toast("Back to 10 s on, 20 s off");
+  });
+  $("loadInput").addEventListener("input", (e) => {
+    const id = e.target.dataset.grip; if (!id) return;
+    settings.loads[id] = e.target.value; saveSettings(); renderTrain();
+  });
+
+  // ---------- Controls ----------
+  $("startBtn").addEventListener("click", () => running ? pause() : start());
+  $("skipBtn").addEventListener("click", () => {
+    if (!steps.length || finished) return;
+    unlockAudio(); if (!startedAt) startedAt = Date.now();
+    advance(true);
+    if (!running && !finished) { remainingMs = curStep().dur * 1000; renderTrain(); }
+  });
+  $("resetBtn").addEventListener("click", reset);
+  $("finishBtn").addEventListener("click", () => { pause(); saveCurrent(false); reset(); });
+
+  // tabs
+  document.querySelectorAll("nav.tabs button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("nav.tabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+    ["train", "log", "setup"].forEach((v) => { $("view-" + v).hidden = v !== b.dataset.tab; });
+    if (b.dataset.tab === "log") renderLog();
+  }));
+
+  let toastT = 0;
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2400); }
+
+  function renderAll() { renderTrain(); renderLog(); }
+  $("todayLbl").textContent = new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  // ---------- Backup ----------
+  $("exportBtn").addEventListener("click", async () => {
+    const json = JSON.stringify({ app: "daily-hangs", version: 1, savedAt: new Date().toISOString(), settings, sessions }, null, 1);
+    const name = "daily-hangs-backup-" + dayKey(new Date()) + ".json";
+    const file = new File([json], name, { type: "application/json" });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "Daily Hangs backup" }); return; }
+    } catch (e) { if (e && e.name === "AbortError") return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+  $("importBtn").addEventListener("click", () => $("importFile").click());
+  $("importFile").addEventListener("change", async (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = "";
+    if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      if (!d || d.app !== "daily-hangs" || !Array.isArray(d.sessions)) throw new Error("bad");
+      const have = new Set(sessions.map((s) => s.id));
+      d.sessions.forEach((s) => { if (s && s.id && !have.has(s.id)) sessions.push(s); });
+      sessions.sort((a, b) => b.ts - a.ts); lsSet(LS_SESSIONS, sessions);
+      if (d.settings) { settings = Object.assign({}, DEFAULTS, d.settings, { reps: Object.assign({}, DEFAULTS.reps, d.settings.reps), loads: Object.assign({}, d.settings.loads) }); saveSettings(); }
+      fillSetup(); reset(); toast("Backup restored: " + d.sessions.length + " sessions");
+    } catch (err) { toast("That file isn't a Daily Hangs backup"); }
+  });
+
+  if (!("vibrate" in navigator)) $("buzzField").hidden = true; // iPhone has no web vibration
+
+  buildSteps(); fillSetup(); renderAll();
+
+  // Offline support
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+})();
+</script>
+</body>
+</html>
